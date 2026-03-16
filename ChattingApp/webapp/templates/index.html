@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Web Chat Localhost</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <h1>Web Chat Localhost</h1>
+      <div id="notificationArea" class="notification-area"></div>
+      <div id="userInfo" class="user-info" style="display:none">
+        <span id="usernameLabel"></span>
+        <button id="btnLogout" class="btn small">Đăng xuất</button>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <section class="sidebar">
+        <div class="card">
+          <h2>Đăng nhập / Đăng ký</h2>
+          <div id="auth">
+            <div class="form-group">
+              <label for="inputUsername">Tên đăng nhập</label>
+              <input id="inputUsername" placeholder="Tên của bạn" />
+            </div>
+            <div class="form-group">
+              <label for="inputPassword">Mật khẩu</label>
+              <input id="inputPassword" type="password" placeholder="Password" />
+            </div>
+            <div class="button-row">
+              <button id="btnLogin" class="btn primary">Đăng nhập</button>
+              <button id="btnRegister" class="btn">Đăng ký</button>
+            </div>
+            <div id="authMessage" class="message"></div>
+          </div>
+        </div>
+
+        <div id="chatControls" class="card" style="display:none">
+          <h2>Quản lý</h2>
+          <div class="form-group">
+            <label for="searchUser">Tìm kiếm người dùng</label>
+            <input id="searchUser" placeholder="Nhập tên ..." />
+            <div id="searchResults"></div>
+          </div>
+
+          <div class="form-group">
+            <label>
+              Lời mời kết bạn 
+              <span id="requestsBadge" class="badge" style="display: none;">0</span>
+            </label>
+            <div id="requestsSection" class="requests-section">
+              <div id="friendRequests" class="list"></div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Danh sách bạn bè</label>
+            <div id="friendList" class="list"></div>
+          </div>
+
+          <div class="form-group">
+            <label for="groupName">Tạo nhóm (chọn nhiều bạn)</label>
+            <input id="groupName" placeholder="Tên nhóm" />
+            <div id="memberCheckboxes" class="list"></div>
+            <button id="btnCreateGroup" class="btn">Tạo nhóm</button>
+            <div id="groupMessage" class="message"></div>
+          </div>
+
+          <div class="form-group">
+            <label>Nhóm của bạn</label>
+            <div id="groupList" class="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="chat" id="chatSection" style="display:none">
+        <div class="chat-header">
+          <div>
+            <label>Đang chat:</label>
+            <select id="conversationSelect"></select>
+          </div>
+          <div class="status" id="sendStatus"></div>
+        </div>
+
+        <div id="messages" class="messages"></div>
+
+        <div class="chat-input">
+          <input id="messageInput" placeholder="Nhập tin nhắn..." autocomplete="off" />
+          <button id="btnSend" class="btn primary">Gửi</button>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

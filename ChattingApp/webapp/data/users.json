@@ -1,0 +1,32 @@
+{
+  "San1": {
+    "password": "tyanh1985",
+    "friends": [
+      "San2",
+      "San3"
+    ],
+    "groups": [
+      "group_1"
+    ],
+    "requests": []
+  },
+  "San2": {
+    "password": "1234",
+    "friends": [
+      "San1"
+    ],
+    "groups": [
+      "group_1"
+    ]
+  },
+  "San3": {
+    "password": "1234",
+    "friends": [
+      "San1"
+    ],
+    "groups": [
+      "group_1"
+    ],
+    "requests": []
+  }
+}

@@ -2,7 +2,7 @@ import socket
 import threading
 import json # Rất quan trọng để xử lý gói tin JSON
 
-HOST = '0.0.0.0'
+HOST = '127.0.0.1'  # localhost
 PORT = 9999
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
