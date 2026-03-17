@@ -1,3 +1,4 @@
+// ===== API Helpers =====
 const api = {
   post: async (path, body) => {
     const res = await fetch(path, {
@@ -13,50 +14,87 @@ const api = {
   },
 };
 
+// ===== Storage (localStorage) =====
+const storage = {
+  getSession: () => {
+    const session = localStorage.getItem("chatSession");
+    return session ? JSON.parse(session) : null;
+  },
+  setSession: (session) => {
+    localStorage.setItem("chatSession", JSON.stringify(session));
+  },
+  clearSession: () => {
+    localStorage.removeItem("chatSession");
+  },
+};
+
+// ===== Variables =====
 let socket;
 let currentUser = null;
 let currentFriends = [];
+let currentGroups = [];
 let currentChat = { type: "group", to: "all", label: "Phòng chung" };
 let pendingMessages = {}; // clientId -> dom element
-let friendRequestCount = 0; // Track number of pending requests
+let allMessages = {}; // conversation_id -> [messages]
 
+// ===== DOM Elements =====
 const elements = {
+  // Auth
   inputUsername: document.getElementById("inputUsername"),
   inputPassword: document.getElementById("inputPassword"),
   btnLogin: document.getElementById("btnLogin"),
   btnRegister: document.getElementById("btnRegister"),
   authMessage: document.getElementById("authMessage"),
-  authSection: document.getElementById("auth"),
-  chatControls: document.getElementById("chatControls"),
+  authSection: document.getElementById("authSection"),
+
+  // User Info
+  userInfo: document.getElementById("userInfo"),
   usernameLabel: document.getElementById("usernameLabel"),
   btnLogout: document.getElementById("btnLogout"),
-  userInfo: document.getElementById("userInfo"),
+
+  // Chat Main
+  chatMainSection: document.getElementById("chatMainSection"),
+
+  // Sidebar
+  searchChat: document.getElementById("searchChat"),
+  chatListFriends: document.getElementById("chatListFriends"),
+  chatListGroups: document.getElementById("chatListGroups"),
+  btnToggleManage: document.getElementById("btnToggleManage"),
+  managePanel: document.getElementById("managePanel"),
+
+  // Manage Panel
   searchUser: document.getElementById("searchUser"),
   searchResults: document.getElementById("searchResults"),
+  requestSection: document.getElementById("requestsSection"),
+  requestsBadge: document.getElementById("requestsBadge"),
   friendRequests: document.getElementById("friendRequests"),
-  friendList: document.getElementById("friendList"),
-  groupList: document.getElementById("groupList"),
   groupName: document.getElementById("groupName"),
   memberCheckboxes: document.getElementById("memberCheckboxes"),
   btnCreateGroup: document.getElementById("btnCreateGroup"),
   groupMessage: document.getElementById("groupMessage"),
-  conversationSelect: document.getElementById("conversationSelect"),
+
+  // Chat Area
+  currentChatName: document.getElementById("currentChatName"),
   messages: document.getElementById("messages"),
   messageInput: document.getElementById("messageInput"),
   btnSend: document.getElementById("btnSend"),
   sendStatus: document.getElementById("sendStatus"),
-  chatSection: document.getElementById("chatSection"),
-  requestsSection: document.getElementById("requestsSection"),
-  requestsBadge: document.getElementById("requestsBadge"),
+
+  // Other
   notificationArea: document.getElementById("notificationArea"),
 };
 
+// ===== Helper Functions =====
 function setStatus(text) {
   elements.sendStatus.textContent = text;
 }
 
+function showAuthMessage(text, isError = true) {
+  elements.authMessage.textContent = text;
+  elements.authMessage.style.color = isError ? "#b91c1c" : "#0b6e4f";
+}
+
 function playSound(type) {
-  // Create a simple beep sound using Web Audio API
   try {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const oscillator = audioContext.createOscillator();
@@ -66,23 +104,19 @@ function playSound(type) {
     gainNode.connect(audioContext.destination);
     
     if (type === "accept") {
-      oscillator.frequency.value = 600; // Higher frequency for accept
-      oscillator.type = "sine";
+      oscillator.frequency.value = 600;
       gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
       gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
       oscillator.start(audioContext.currentTime);
       oscillator.stop(audioContext.currentTime + 0.2);
     } else if (type === "decline") {
-      oscillator.frequency.value = 400; // Lower frequency for decline
-      oscillator.type = "sine";
+      oscillator.frequency.value = 400;
       gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
       gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
       oscillator.start(audioContext.currentTime);
       oscillator.stop(audioContext.currentTime + 0.15);
     } else { // friend_request
-      // Two-tone beep for new friend request
       oscillator.frequency.value = 800;
-      oscillator.type = "sine";
       gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
       gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
       oscillator.start(audioContext.currentTime);
@@ -93,45 +127,33 @@ function playSound(type) {
       osc2.connect(gain2);
       gain2.connect(audioContext.destination);
       osc2.frequency.value = 1000;
-      osc2.type = "sine";
       gain2.gain.setValueAtTime(0.3, audioContext.currentTime + 0.12);
       gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.22);
       osc2.start(audioContext.currentTime + 0.12);
       osc2.stop(audioContext.currentTime + 0.22);
     }
   } catch (e) {
-    console.log("Audio notification not available:", e);
+    console.log("Audio not available:", e);
   }
 }
 
-function showAuthMessage(text, isError = true) {
-  elements.authMessage.textContent = text;
-  elements.authMessage.style.color = isError ? "#b91c1c" : "#0b6e4f";
+// ===== Message Display =====
+function clearMessages() {
+  elements.messages.innerHTML = "";
 }
 
-function makeOption(value, label) {
-  const opt = document.createElement("option");
-  opt.value = value;
-  opt.textContent = label;
-  return opt;
-}
-
-function addMessage({ from, text, type, groupName, self, clientId }) {
+function addMessageToDom({ from, text, type, groupName, self, clientId }) {
   const row = document.createElement("div");
   row.className = "message-row" + (self ? " sent" : "");
 
   const meta = document.createElement("div");
   meta.className = "meta";
   if (type === "group") {
-    meta.textContent = self ? "Bạn (Nhóm chung)" : `${from} (Nhóm chung)`;
+    meta.textContent = self ? "Bạn (Phòng chung)" : `${from} (Phòng chung)`;
   } else if (type === "private") {
-    meta.textContent = self
-      ? `Bạn → ${currentChat.label}`
-      : `${from} → Bạn`;
+    meta.textContent = self ? `Bạn → ${currentChat.label}` : `${from} → Bạn`;
   } else if (type === "groupchat") {
-    meta.textContent = self
-      ? `Bạn (Nhóm: ${groupName})`
-      : `${from} (Nhóm: ${groupName})`;
+    meta.textContent = self ? `Bạn (${groupName})` : `${from} (${groupName})`;
   }
   row.appendChild(meta);
 
@@ -139,6 +161,37 @@ function addMessage({ from, text, type, groupName, self, clientId }) {
   textEl.className = "text";
   textEl.textContent = text;
   row.appendChild(textEl);
+
+  // Add delete button for private conversations (only show once)
+  if (type === "private" && self && !document.querySelector(".btn-clear-chat")) {
+    const btnDelete = document.createElement("button");
+    btnDelete.className = "btn-clear-chat";
+    btnDelete.textContent = "🗑";
+    btnDelete.title = "Xoá toàn bộ đoạn chat";
+    btnDelete.addEventListener("click", async () => {
+      if (confirm(`Bạn có chắc chắn muốn xoá toàn bộ đoạn chat với ${currentChat.label}? Hành động này không thể hoàn tác.`)) {
+        const res = await api.post("/api/messages/delete", {
+          me: currentUser,
+          to: currentChat.to,
+        });
+        if (res.success) {
+          clearMessages();
+          showAuthMessage("Đã xoá toàn bộ đoạn chat.", false);
+          
+          // Notify the other user in real-time
+          if (socket) {
+            socket.emit("delete_conversation", {
+              user: currentUser,
+              other_user: currentChat.to,
+            });
+          }
+        } else {
+          alert(res.message || "Không thể xoá đoạn chat.");
+        }
+      }
+    });
+    row.appendChild(btnDelete);
+  }
 
   if (self && clientId) {
     const pending = document.createElement("div");
@@ -152,24 +205,175 @@ function addMessage({ from, text, type, groupName, self, clientId }) {
   elements.messages.scrollTop = elements.messages.scrollHeight;
 }
 
-function clearMessages() {
-  elements.messages.innerHTML = "";
+async function loadMessageHistory() {
+  if (!currentUser) return;
+
+  const params = new URLSearchParams({
+    me: currentUser,
+    type: currentChat.type,
+  });
+
+  if (currentChat.type === "private") {
+    params.append("to", currentChat.to);
+  } else if (currentChat.type === "groupchat") {
+    params.append("groupId", currentChat.to);
+  }
+
+  const res = await api.get(`/api/messages/history?${params}`);
+  if (!res.success) {
+    console.error("Failed to load message history:", res.message);
+    return;
+  }
+
+  clearMessages();
+  const messages = res.messages || [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    addMessageToDom({
+      from: msg.from,
+      text: msg.text,
+      type: msg.type,
+      groupName: msg.groupName,
+      self: msg.from === currentUser,
+    });
+  }
 }
 
+// ===== Chat List (Messenger-style) =====
+async function renderChatList() {
+  if (!currentUser) return;
+
+  // Render friends
+  elements.chatListFriends.innerHTML = "";
+  for (const friend of currentFriends) {
+    const item = document.createElement("div");
+    item.className = "chat-list-item";
+    if (currentChat.type === "private" && currentChat.to === friend) {
+      item.classList.add("active");
+    }
+
+    const chatArea = document.createElement("div");
+    chatArea.style.flex = "1";
+    chatArea.style.cursor = "pointer";
+    chatArea.innerHTML = `
+      <div class="chat-item-avatar">
+        <span class="avatar-text">👤</span>
+      </div>
+      <div class="chat-item-info">
+        <div class="chat-item-name">${friend}</div>
+        <div class="chat-item-preview">Tin nhắn riêng</div>
+      </div>
+    `;
+
+    chatArea.addEventListener("click", async () => {
+      setCurrentChat({ type: "private", to: friend, label: friend });
+      await loadMessageHistory();
+    });
+
+    item.appendChild(chatArea);
+
+    // Add delete friend button
+    const btnDeleteFriend = document.createElement("button");
+    btnDeleteFriend.className = "btn-icon-small";
+    btnDeleteFriend.textContent = "✕";
+    btnDeleteFriend.title = "Xoá bạn bè";
+    btnDeleteFriend.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (confirm(`Bạn có chắc chắn muốn xoá ${friend} khỏi danh sách bạn bè?`)) {
+        const res = await api.post("/api/friends/remove", { me: currentUser, friend });
+        if (res.success) {
+          await refreshFriends();
+        } else {
+          alert(res.message || "Không thể xoá bạn bè.");
+        }
+      }
+    });
+
+    item.appendChild(btnDeleteFriend);
+    elements.chatListFriends.appendChild(item);
+  }
+
+  // Render groups
+  elements.chatListGroups.innerHTML = "";
+  for (const group of currentGroups) {
+    const item = document.createElement("div");
+    item.className = "chat-list-item";
+    if (currentChat.type === "groupchat" && currentChat.to === group.id) {
+      item.classList.add("active");
+    }
+
+    const chatArea = document.createElement("div");
+    chatArea.style.flex = "1";
+    chatArea.style.cursor = "pointer";
+    chatArea.innerHTML = `
+      <div class="chat-item-avatar">
+        <span class="avatar-text">👥</span>
+      </div>
+      <div class="chat-item-info">
+        <div class="chat-item-name">${group.name}</div>
+        <div class="chat-item-preview">${group.members.length} thành viên</div>
+      </div>
+    `;
+
+    chatArea.addEventListener("click", async () => {
+      setCurrentChat({
+        type: "groupchat",
+        to: group.id,
+        label: group.name,
+        groupName: group.name,
+      });
+      await loadMessageHistory();
+    });
+
+    item.appendChild(chatArea);
+
+    // Add delete group button (only if user is owner)
+    if (group.owner === currentUser) {
+      const btnDeleteGroup = document.createElement("button");
+      btnDeleteGroup.className = "btn-icon-small";
+      btnDeleteGroup.textContent = "✕";
+      btnDeleteGroup.title = "Xoá nhóm";
+      btnDeleteGroup.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (confirm(`Bạn có chắc chắn muốn xoá nhóm "${group.name}"? Hành động này không thể hoàn tác.`)) {
+          const res = await api.post("/api/groups/delete", { me: currentUser, groupId: group.id });
+          if (res.success) {
+            await refreshGroups();
+            // If the deleted group was active, switch to main room
+            if (currentChat.type === "groupchat" && currentChat.to === group.id) {
+              setCurrentChat({ type: "group", to: "all", label: "Phòng chung" });
+              await loadMessageHistory();
+            }
+          } else {
+            alert(res.message || "Không thể xoá nhóm.");
+          }
+        }
+      });
+      item.appendChild(btnDeleteGroup);
+    }
+
+    elements.chatListGroups.appendChild(item);
+  }
+}
+
+function setCurrentChat({ type, to, label, groupName }) {
+  currentChat = { type, to, label, groupName };
+  elements.currentChatName.textContent = label;
+  renderChatList(); // Update active state
+}
+
+// ===== Data Refresh =====
 async function refreshFriendRequests() {
   if (!currentUser) return;
   const res = await api.get(`/api/friends/requests?me=${encodeURIComponent(currentUser)}`);
   const requests = res.requests || [];
-  friendRequestCount = requests.length;
-  
-  // Update badge display
+
   if (elements.requestsBadge) {
-    elements.requestsBadge.textContent = friendRequestCount;
-    elements.requestsBadge.style.display = friendRequestCount > 0 ? "block" : "none";
+    elements.requestsBadge.textContent = requests.length;
+    elements.requestsBadge.style.display = requests.length > 0 ? "block" : "none";
   }
-  
+
   elements.friendRequests.innerHTML = "";
-  
   if (requests.length === 0) {
     const emptyMsg = document.createElement("div");
     emptyMsg.className = "no-requests";
@@ -177,16 +381,11 @@ async function refreshFriendRequests() {
     elements.friendRequests.appendChild(emptyMsg);
     return;
   }
-  
-  // Highlight the requests section when there are new requests
-  if (requests.length > 0) {
-    elements.requestsSection?.classList.add("has-requests");
-  }
-  
+
   for (const requester of requests) {
     const item = document.createElement("div");
     item.className = "friend-request-item";
-    
+
     const nameSpan = document.createElement("span");
     nameSpan.className = "requester-name";
     nameSpan.textContent = requester;
@@ -221,67 +420,23 @@ async function refreshFriends() {
   if (!currentUser) return;
   const res = await api.get(`/api/friends?me=${encodeURIComponent(currentUser)}`);
   currentFriends = res.friends || [];
-  elements.friendList.innerHTML = "";
+  
   elements.memberCheckboxes.innerHTML = "";
   for (const friend of currentFriends) {
-    const item = document.createElement("div");
-    item.className = "item";
-    item.textContent = friend;
-    const btn = document.createElement("button");
-    btn.className = "btn small";
-    btn.textContent = "Chat";
-    btn.addEventListener("click", () => {
-      setConversation({ type: "private", to: friend, label: friend });
-    });
-    item.appendChild(btn);
-    elements.friendList.appendChild(item);
-
     const chk = document.createElement("label");
     chk.className = "item";
     chk.innerHTML = `<input type="checkbox" value="${friend}" /> ${friend}`;
     elements.memberCheckboxes.appendChild(chk);
   }
+
+  await renderChatList();
 }
 
 async function refreshGroups() {
   if (!currentUser) return;
   const res = await api.get(`/api/groups?me=${encodeURIComponent(currentUser)}`);
-  elements.groupList.innerHTML = "";
-  const groups = res.groups || [];
-
-  for (const group of groups) {
-    const item = document.createElement("div");
-    item.className = "item";
-    item.textContent = group.name;
-    const btn = document.createElement("button");
-    btn.className = "btn small";
-    btn.textContent = "Chat";
-    btn.addEventListener("click", () => {
-      setConversation({
-        type: "groupchat",
-        to: group.id,
-        label: group.name,
-        groupName: group.name,
-      });
-    });
-    item.appendChild(btn);
-    elements.groupList.appendChild(item);
-  }
-}
-
-function setConversation({ type, to, label, groupName }) {
-  currentChat = { type, to, label, groupName };
-  elements.conversationSelect.innerHTML = "";
-  elements.conversationSelect.appendChild(makeOption(type + "|" + to, label));
-  clearMessages();
-}
-
-function initConversationPicker() {
-  elements.conversationSelect.innerHTML = "";
-  elements.conversationSelect.appendChild(makeOption("group|all", "Phòng chung"));
-  if (currentChat.type === "group" || currentChat.type === "groupchat") {
-    // keep existing selection
-  }
+  currentGroups = res.groups || [];
+  await renderChatList();
 }
 
 async function doSearchUsers() {
@@ -302,8 +457,9 @@ async function doSearchUsers() {
 
     if (currentFriends.includes(u)) {
       btn.textContent = "Chat";
-      btn.addEventListener("click", () => {
-        setConversation({ type: "private", to: u, label: u });
+      btn.addEventListener("click", async () => {
+        setCurrentChat({ type: "private", to: u, label: u });
+        await loadMessageHistory();
       });
     } else {
       btn.textContent = "Gửi yêu cầu";
@@ -319,6 +475,7 @@ async function doSearchUsers() {
   }
 }
 
+// ===== Socket Communication =====
 function connectSocket() {
   if (!currentUser) return;
 
@@ -327,17 +484,12 @@ function connectSocket() {
 
   socket.on("connect", () => {
     setStatus("Đã kết nối tới server.");
-    // Send authentication event as fallback
     socket.emit("authenticate", { username: currentUser });
-    console.log(`[Client] Socket connected, authenticating as ${currentUser}`);
+    console.log(`[Client] Connected and authenticated as ${currentUser}`);
   });
 
   socket.on("auth_success", (data) => {
-    console.log(`[Client] Authentication successful: ${data.message}`);
-  });
-
-  socket.on("auth_error", (data) => {
-    console.error(`[Client] Authentication failed: ${data.message}`);
+    console.log(`[Client] Auth success: ${data.message}`);
   });
 
   socket.on("disconnect", () => {
@@ -345,9 +497,27 @@ function connectSocket() {
   });
 
   socket.on("message", (payload) => {
-    const { from, type, text, groupName } = payload;
-    const isSelf = false;
-    addMessage({ from, text, type, groupName, self: isSelf });
+    const { from, type, text, groupName, to, groupId } = payload;
+    
+    // Check if the message is for the current chat
+    let shouldDisplay = false;
+    if (type === "private") {
+      shouldDisplay = (currentChat.type === "private" && currentChat.to === from);
+    } else if (type === "group") {
+      shouldDisplay = currentChat.type === "group";
+    } else if (type === "groupchat") {
+      shouldDisplay = currentChat.type === "groupchat" && currentChat.to === groupId;
+    }
+
+    if (shouldDisplay) {
+      addMessageToDom({ 
+        from, 
+        text, 
+        type, 
+        groupName, 
+        self: false
+      });
+    }
   });
 
   socket.on("message_ack", (payload) => {
@@ -362,42 +532,52 @@ function connectSocket() {
   socket.on("friend_request", (payload) => {
     const from = payload?.from;
     if (from) {
-      // Play notification sound
       playSound("friend_request");
+      showAuthMessage(`📥 Yêu cầu kết bạn từ ${from}`, false);
       
-      // Show prominent notification
-      showAuthMessage(`📥 Bạn có yêu cầu kết bạn từ ${from}`, false);
-      
-      // Add visual notification in a separate area if available
       if (elements.notificationArea) {
         const notification = document.createElement("div");
         notification.className = "notification friend-request-notification";
-        notification.innerHTML = `
-          <strong>Lời mời kết bạn mới</strong><br>
-          <em>${from}</em> muốn kết bạn với bạn.
-        `;
+        notification.innerHTML = `<strong>Lời mời kết bạn mới</strong><br><em>${from}</em>`;
         elements.notificationArea.appendChild(notification);
-        
-        // Remove notification after 5 seconds
-        setTimeout(() => {
-          notification.remove();
-        }, 5000);
+        setTimeout(() => notification.remove(), 5000);
       }
       
-      // Update the friend requests list
       refreshFriendRequests();
+    }
+  });
+
+  socket.on("friend_accepted", (payload) => {
+    const from = payload?.from;
+    if (from) {
+      playSound("accept");
+      showAuthMessage(`✓ ${from} đã chấp nhận lời mời kết bạn`, false);
       
-      // Highlight requests section by scrolling to it
-      if (elements.requestsSection) {
-        elements.requestsSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      if (elements.notificationArea) {
+        const notification = document.createElement("div");
+        notification.className = "notification";
+        notification.innerHTML = `<strong>Bạn bè mới!</strong><br><em>${from}</em>`;
+        elements.notificationArea.appendChild(notification);
+        setTimeout(() => notification.remove(), 5000);
       }
+      
+      refreshFriends();
+    }
+  });
+
+  socket.on("conversation_deleted", (payload) => {
+    const { user, other_user } = payload;
+    // Check if the deleted conversation is the current one
+    if (currentChat.type === "private" && currentChat.to === user) {
+      clearMessages();
+      showAuthMessage(`${user} đã xoá toàn bộ đoạn chat.`, false);
     }
   });
 }
 
 function sendChatMessage() {
   if (!currentUser || !socket) {
-    setStatus("Vui lòng đăng nhập trước khi gửi tin nhắn.");
+    setStatus("Vui lòng đăng nhập.");
     return;
   }
 
@@ -409,23 +589,19 @@ function sendChatMessage() {
     from: currentUser,
     clientId,
     text,
+    type: currentChat.type,
   };
 
-  if (currentChat.type === "group") {
-    payload.type = "group";
-    payload.to = "all";
-  } else if (currentChat.type === "private") {
-    payload.type = "private";
+  if (currentChat.type === "private") {
     payload.to = currentChat.to;
   } else if (currentChat.type === "groupchat") {
-    payload.type = "groupchat";
     payload.groupId = currentChat.to;
   }
 
-  addMessage({
+  addMessageToDom({
     from: currentUser,
     text,
-    type: currentChat.type === "groupchat" ? "groupchat" : currentChat.type,
+    type: currentChat.type,
     groupName: currentChat.groupName,
     self: true,
     clientId,
@@ -435,37 +611,7 @@ function sendChatMessage() {
   elements.messageInput.value = "";
 }
 
-function showChatUI() {
-  elements.authSection.style.display = "none";
-  elements.chatControls.style.display = "block";
-  elements.chatSection.style.display = "block";
-  elements.userInfo.style.display = "flex";
-  elements.usernameLabel.textContent = currentUser;
-  elements.btnSend.disabled = false;
-  elements.messageInput.disabled = false;
-  initConversationPicker();
-  refreshFriendRequests();
-  refreshFriends();
-  refreshGroups();
-  connectSocket();
-}
-
-function logout() {
-  currentUser = null;
-  if (socket) {
-    socket.disconnect();
-    socket = null;
-  }
-  elements.authSection.style.display = "block";
-  elements.chatControls.style.display = "none";
-  elements.chatSection.style.display = "none";
-  elements.userInfo.style.display = "none";
-  elements.authMessage.textContent = "";
-  clearMessages();
-  elements.btnSend.disabled = true;
-  elements.messageInput.disabled = true;
-}
-
+// ===== Auth =====
 async function login() {
   const username = elements.inputUsername.value.trim();
   const password = elements.inputPassword.value.trim();
@@ -483,6 +629,7 @@ async function login() {
 
   currentUser = username;
   showAuthMessage("Đăng nhập thành công.", false);
+  storage.setSession({ username });
   showChatUI();
 }
 
@@ -504,7 +651,51 @@ async function registerUser() {
   showAuthMessage("Đăng ký thành công. Bạn có thể đăng nhập.", false);
 }
 
-function init() {
+async function logout() {
+  currentUser = null;
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+  storage.clearSession();
+  showAuthUI();
+}
+
+// ===== UI Display =====
+async function showChatUI() {
+  elements.authSection.style.display = "none";
+  elements.chatMainSection.style.display = "flex";
+  elements.userInfo.style.display = "flex";
+  elements.usernameLabel.textContent = currentUser;
+
+  await refreshFriendRequests();
+  await refreshFriends();
+  await refreshGroups();
+  await loadMessageHistory();
+  
+  connectSocket();
+}
+
+function showAuthUI() {
+  elements.authSection.style.display = "flex";
+  elements.chatMainSection.style.display = "none";
+  elements.userInfo.style.display = "none";
+  elements.authMessage.textContent = "";
+  clearMessages();
+}
+
+// ===== Initialize =====
+async function init() {
+  // Check session
+  const session = storage.getSession();
+  if (session && session.username) {
+    currentUser = session.username;
+    await showChatUI();
+  } else {
+    showAuthUI();
+  }
+
+  // Event listeners
   elements.btnLogin.addEventListener("click", login);
   elements.btnRegister.addEventListener("click", registerUser);
   elements.btnLogout.addEventListener("click", logout);
@@ -514,9 +705,14 @@ function init() {
       sendChatMessage();
     }
   });
-  elements.searchUser.addEventListener("input", () => {
-    doSearchUsers();
+  
+  elements.searchUser.addEventListener("input", doSearchUsers);
+
+  elements.btnToggleManage.addEventListener("click", () => {
+    const isHidden = elements.managePanel.style.display === "none";
+    elements.managePanel.style.display = isHidden ? "block" : "none";
   });
+
   elements.btnCreateGroup.addEventListener("click", async () => {
     const name = elements.groupName.value.trim();
     const checkboxes = Array.from(
@@ -537,19 +733,13 @@ function init() {
     if (res.success) {
       elements.groupMessage.textContent = "Đã tạo nhóm.";
       elements.groupName.value = "";
-      refreshGroups();
+      await refreshGroups();
     } else {
       elements.groupMessage.textContent = res.message || "Không thể tạo nhóm.";
     }
   });
-
-  // Start hidden until login
-  elements.btnSend.disabled = true;
-  elements.messageInput.disabled = true;
-  elements.chatSection.style.display = "none";
-
-  // Default: show group chat
-  setConversation({ type: "group", to: "all", label: "Phòng chung" });
 }
 
+// Start app
 init();
+

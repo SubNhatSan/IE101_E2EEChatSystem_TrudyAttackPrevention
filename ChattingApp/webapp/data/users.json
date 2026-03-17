@@ -2,8 +2,8 @@
   "San1": {
     "password": "tyanh1985",
     "friends": [
-      "San2",
-      "San3"
+      "San3",
+      "San2"
     ],
     "groups": [
       "group_1"
@@ -13,16 +13,19 @@
   "San2": {
     "password": "1234",
     "friends": [
+      "San3",
       "San1"
     ],
     "groups": [
       "group_1"
-    ]
+    ],
+    "requests": []
   },
   "San3": {
     "password": "1234",
     "friends": [
-      "San1"
+      "San1",
+      "San2"
     ],
     "groups": [
       "group_1"

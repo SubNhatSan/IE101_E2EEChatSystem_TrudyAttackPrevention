@@ -1,0 +1,13 @@
+{
+  "private|San1|San2": [],
+  "groupchat|group_1": [
+    {
+      "from": "San2",
+      "type": "groupchat",
+      "groupId": "group_1",
+      "groupName": "3 thằng San",
+      "text": "hey hey",
+      "timestamp": "2026-03-17T14:09:48.314519"
+    }
+  ]
+}
