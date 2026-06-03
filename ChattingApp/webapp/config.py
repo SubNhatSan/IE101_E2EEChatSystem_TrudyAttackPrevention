@@ -11,5 +11,5 @@ SOCKETIO_CORS_ALLOWED_ORIGINS = "*"
 
 # App config
 DEBUG = os.environ.get("FLASK_DEBUG", "False") == "True"
-HOST = os.environ.get("FLASK_HOST", "127.0.0.1")
+HOST = os.environ.get("FLASK_HOST", "0.0.0.0")  # Listen on all interfaces
 PORT = int(os.environ.get("FLASK_PORT", 5000))
