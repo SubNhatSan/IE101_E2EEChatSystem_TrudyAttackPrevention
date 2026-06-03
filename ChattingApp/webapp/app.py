@@ -58,6 +58,12 @@ def debug_connected_users():
 
 if __name__ == "__main__":
     print(f"[+] Starting web chat server on http://{HOST}:{PORT}")
-    socketio.run(app, host=HOST, port=PORT, debug=True)
+    socketio.run(
+        app,
+        host=HOST,
+        port=PORT,
+        debug=False,
+        allow_unsafe_werkzeug=True
+    )
 
 
